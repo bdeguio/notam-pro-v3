@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export async function GET(request: Request) {
+
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
 
@@ -11,6 +12,7 @@ export async function GET(request: Request) {
   }
 
   try {
+
     // Exchange authorization code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -33,17 +35,35 @@ export async function GET(request: Request) {
       return NextResponse.redirect(new URL("/", request.url));
     }
 
+    // 🔹 Get Google user profile
+    const userRes = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      }
+    );
+
+    const user = await userRes.json();
+
+    console.log("GOOGLE USER:", user);
+
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    const { error } = await supabase.from("calendar_connections").insert({
-      provider: "google",
-      refresh_token: tokens.refresh_token,
-      access_token: tokens.access_token,
-      expires_at: Date.now() + tokens.expires_in * 1000,
-    });
+    const { error } = await supabase
+      .from("calendar_connections")
+      .insert({
+        provider: "google",
+        google_email: user.email,
+        google_name: user.name,
+        refresh_token: tokens.refresh_token,
+        access_token: tokens.access_token,
+        expires_at: Date.now() + tokens.expires_in * 1000,
+      });
 
     if (error) {
       console.log("Supabase insert error:", error);
