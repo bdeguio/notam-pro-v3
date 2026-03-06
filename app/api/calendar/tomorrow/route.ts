@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+function parseRoute(summary: string) {
+  const match = summary.match(/\((\w{3})\s-\s(\w{3})\)/);
+
+  if (!match) return { origin: null, destination: null };
+
+  return {
+    origin: "K" + match[1],
+    destination: "K" + match[2],
+  };
+}
+
 export async function GET() {
 
   const supabase = createClient(
@@ -20,7 +31,7 @@ export async function GET() {
     return NextResponse.json({ events: [] });
   }
 
-  // 🔁 Refresh access token
+  // Refresh access token
   const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
@@ -37,7 +48,7 @@ export async function GET() {
   const refreshData = await refreshRes.json();
   const accessToken = refreshData.access_token;
 
-  // STEP 1: get calendar list
+  // Get calendar list
   const calRes = await fetch(
     "https://www.googleapis.com/calendar/v3/users/me/calendarList",
     {
@@ -49,7 +60,6 @@ export async function GET() {
 
   const calendars = await calRes.json();
 
-  // STEP 2: find JetInsight calendar
   const jetCalendar = calendars.items.find(
     (cal: any) =>
       cal.description &&
@@ -61,12 +71,15 @@ export async function GET() {
     return NextResponse.json({ events: [] });
   }
 
-  console.log("JET INSIGHT CALENDAR:", jetCalendar.id);
+  console.log("JetInsight calendar detected");
 
-  // Pull next 7 days of events
+  // Tomorrow window
   const start = new Date();
-  const end = new Date();
-  end.setDate(end.getDate() + 7);
+  start.setDate(start.getDate() + 1);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
 
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
@@ -78,6 +91,7 @@ export async function GET() {
       },
     }
   );
+
   if (!res.ok) {
     const error = await res.text();
     console.error("Google API Error:", error);
@@ -85,27 +99,42 @@ export async function GET() {
   }
 
   const dataEvents = await res.json();
-
-  console.log("JET INSIGHT EVENTS COUNT:", dataEvents.items?.length);
-
   const events = dataEvents.items || [];
 
-  // Store events in Supabase
-  for (const event of events) {
+  // Only scheduled flights
+  const flightEvents = events.filter((event: any) =>
+    event.summary?.includes("Scheduled flight")
+  );
+
+  console.log("Tomorrow flights detected:", flightEvents.length);
+
+  // Build insert rows
+  const rows = flightEvents.map((event: any) => {
+
+    const { origin, destination } = parseRoute(event.summary || "");
+
+    return {
+      google_event_id: event.id,
+      google_email: connection.google_email,
+      summary: event.summary || "",
+      description: event.description || "",
+      origin,
+      destination,
+      start_time: event.start?.dateTime || event.start?.date,
+      end_time: event.end?.dateTime || event.end?.date,
+      raw: event,
+    };
+
+  });
+
+  if (rows.length > 0) {
     await supabase
       .from("calendar_events")
-      .upsert({
-        google_event_id: event.id,
-        google_email: connection.google_email,
-        summary: event.summary || "",
-        description: event.description || "",
-        start_time: event.start?.dateTime || event.start?.date,
-        end_time: event.end?.dateTime || event.end?.date,
-        raw: event,
-      });
+      .upsert(rows);
   }
 
   return NextResponse.json({
-    events,
+    events: flightEvents,
   });
+
 }
