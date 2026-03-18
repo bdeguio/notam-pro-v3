@@ -79,13 +79,9 @@ export async function GET() {
 
   console.log("JetInsight calendar detected");
 
-  // Tomorrow window
+  // Next 24 hours window
   const start = new Date();
-  start.setDate(start.getDate() + 1);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setHours(23, 59, 59, 999);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
