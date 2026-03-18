@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function parseRoute(summary: string) {
-  const match = summary.match(/\((\w{3})\s-\s(\w{3})\)/);
+
+  const match =
+    summary.match(/\((\w{3})\s-\s(\w{3})\)/) ||
+    summary.match(/(\w{3})-(\w{3})/);
 
   if (!match) return { origin: null, destination: null };
 
@@ -101,14 +104,12 @@ export async function GET() {
   const dataEvents = await res.json();
   const events = dataEvents.items || [];
 
-  // Only scheduled flights
   const flightEvents = events.filter((event: any) =>
     event.summary?.includes("Scheduled flight")
   );
 
   console.log("Tomorrow flights detected:", flightEvents.length);
 
-  // Build insert rows
   const rows = flightEvents.map((event: any) => {
 
     const { origin, destination } = parseRoute(event.summary || "");
@@ -128,9 +129,21 @@ export async function GET() {
   });
 
   if (rows.length > 0) {
-    await supabase
+
+    const { error: insertError } = await supabase
       .from("calendar_events")
       .upsert(rows);
+
+    if (insertError) {
+      console.error("calendar_events insert error:", insertError);
+    }
+
+    const { error: airportError } = await supabase.rpc("build_briefing_airports");
+
+    if (airportError) {
+      console.error("build_briefing_airports error:", airportError);
+    }
+
   }
 
   return NextResponse.json({

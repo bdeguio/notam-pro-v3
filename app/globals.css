@@ -24,3 +24,12 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.btn {
+  display:block;
+  width:100%;
+  padding:12px;
+  border-radius:8px;
+  background:black;
+  color:white;
+}
