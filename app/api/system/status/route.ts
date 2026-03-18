@@ -3,6 +3,9 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET() {
 
   const status = {

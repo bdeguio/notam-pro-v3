@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET() {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
