@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 
-export async function GET() {
+export async function GET(request: Request) {
+
+  const { searchParams } = new URL(request.url);
+  const pilotParam = searchParams.get("pilot");
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,11 +19,22 @@ export async function GET() {
   const date = tomorrow.toISOString().split("T")[0];
 
   // fetch tomorrow flights
-  const { data: flights } = await supabase
+  let query = supabase
     .from("calendar_events")
     .select("google_email, origin, destination, start_time")
     .gte("start_time", `${date}T00:00:00`)
     .lte("start_time", `${date}T23:59:59`);
+
+  if (pilotParam) {
+    query = query.eq("google_email", pilotParam);
+  }
+
+  const { data: flights, error: flightError } = await query;
+
+  if (flightError) {
+    console.error("Flight query failed:", flightError);
+    return NextResponse.json({ error: "Flight query failed" });
+  }
 
   if (!flights || flights.length === 0) {
     return NextResponse.json({ message: "No flights tomorrow" });
@@ -50,13 +64,33 @@ export async function GET() {
 
   for (const email in pilots) {
 
+    // duplicate protection
+    const { data: existing } = await supabase
+      .from("briefing_sent")
+      .select("id")
+      .eq("pilot_email", email)
+      .eq("briefing_date", date)
+      .maybeSingle();
+
+    if (existing) {
+      results.push({
+        pilot: email,
+        skipped: "already_sent"
+      });
+      continue;
+    }
+
     const airportList = Array.from(pilots[email].airports);
 
-    const { data: notams } = await supabase
+    const { data: notams, error: notamError } = await supabase
       .from("airport_notams")
       .select("airport, summary, severity")
       .eq("briefing_date", date)
       .in("airport", airportList);
+
+    if (notamError) {
+      console.error("NOTAM query failed:", notamError);
+    }
 
     // sort flights chronologically
     const flightsSorted = pilots[email].flights.sort(
@@ -105,17 +139,29 @@ export async function GET() {
       </p>
     `;
 
-    const { error } = await resend.emails.send({
+    const { error: emailError } = await resend.emails.send({
       from: "NOTAM.pro <onboarding@resend.dev>",
       to: email,
       subject: "Tomorrow's NOTAM Briefing",
       html: emailBody,
     });
 
+    if (emailError) {
+      console.error("Email send error:", emailError);
+    }
+
+    // record send
+    if (!emailError) {
+      await supabase.from("briefing_sent").insert({
+        pilot_email: email,
+        briefing_date: date
+      });
+    }
+
     results.push({
       pilot: email,
       airports: airportList,
-      emailSent: !error
+      emailSent: !emailError
     });
   }
 

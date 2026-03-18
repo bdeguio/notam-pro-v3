@@ -138,6 +138,7 @@ export default function Success() {
           )}
 
         </div>
+        
         <div className="mt-10 text-left">
 
           <h2 className="font-semibold mb-3">
@@ -154,6 +155,14 @@ export default function Success() {
 
               <div>
                 Notamify API: {status.notamify ? "✅ Connected" : "❌ Failed"}
+              </div>
+
+              <div>
+                Supabase: {status.supabase ? "✅ Connected" : "❌ Failed"}
+              </div>
+
+              <div>
+                Resend Email: {status.resend ? "✅ Connected" : "❌ Failed"}
               </div>
 
             </div>

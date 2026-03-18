@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+export const dynamic = "force-dynamic";
 
 export async function GET() {
+
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY!,
+  });
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
