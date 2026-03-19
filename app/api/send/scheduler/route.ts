@@ -3,17 +3,17 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
 
-  const base = process.env.NEXT_PUBLIC_BASE_URL;
+  const base = new URL(req.url).origin;
 
   await fetch(`${base}/api/calendar/tomorrow`);
-  await fetch(`${base}/api/notams`);
+  await fetch(`${base}/api/notams/build`);
   await fetch(`${base}/api/notams/summarize`);
-  await fetch(`${base}/api/send-briefing`);
+  await fetch(`${base}/api/content`);
 
   return NextResponse.json({
-    status: "briefing pipeline executed"
+    status: "successfull"
   });
 
 }
