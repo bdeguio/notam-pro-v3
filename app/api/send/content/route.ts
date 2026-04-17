@@ -5,8 +5,19 @@ import { Resend } from "resend";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+function getTomorrowDateString() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
 
+  const year = tomorrow.getFullYear();
+  const month = String(tomorrow.getMonth() + 1).padStart(2, "0");
+  const day = String(tomorrow.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const pilotParam = searchParams.get("pilot");
 
@@ -17,11 +28,8 @@ export async function GET(request: Request) {
 
   const resend = new Resend(process.env.RESEND_API_KEY!);
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const date = tomorrow.toISOString().split("T")[0];
+  const date = getTomorrowDateString();
 
-  // fetch tomorrow flights
   let query = supabase
     .from("calendar_events")
     .select("google_email, origin, destination, start_time")
@@ -43,17 +51,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "No flights tomorrow" });
   }
 
-  // group flights by pilot
-  const pilots: any = {};
+  const pilots: Record<string, any> = {};
 
   for (const flight of flights) {
-
     const email = flight.google_email;
 
     if (!pilots[email]) {
       pilots[email] = {
         flights: [],
-        airports: new Set()
+        airports: new Set<string>(),
       };
     }
 
@@ -66,8 +72,6 @@ export async function GET(request: Request) {
   const results = [];
 
   for (const email in pilots) {
-
-    // duplicate protection
     const { data: existing } = await supabase
       .from("briefing_sent")
       .select("id")
@@ -78,7 +82,7 @@ export async function GET(request: Request) {
     if (existing) {
       results.push({
         pilot: email,
-        skipped: "already_sent"
+        skipped: "already_sent",
       });
       continue;
     }
@@ -95,7 +99,6 @@ export async function GET(request: Request) {
       console.error("NOTAM query failed:", notamError);
     }
 
-    // sort flights chronologically
     const flightsSorted = pilots[email].flights.sort(
       (a: any, b: any) =>
         new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
@@ -108,10 +111,9 @@ export async function GET(request: Request) {
     `;
 
     flightsSorted.forEach((f: any) => {
-
       const time = new Date(f.start_time).toLocaleTimeString([], {
         hour: "2-digit",
-        minute: "2-digit"
+        minute: "2-digit",
       });
 
       emailBody += `<p>${f.origin} → ${f.destination} ${time}</p>`;
@@ -123,8 +125,7 @@ export async function GET(request: Request) {
     `;
 
     airportList.forEach((airport: any) => {
-
-      const airportNotam = notams?.find(n => n.airport === airport);
+      const airportNotam = notams?.find((n) => n.airport === airport);
 
       emailBody += `
         <p>
@@ -153,24 +154,22 @@ export async function GET(request: Request) {
       console.error("Email send error:", emailError);
     }
 
-    // record send
     if (!emailError) {
       await supabase.from("briefing_sent").insert({
         pilot_email: email,
-        briefing_date: date
+        briefing_date: date,
       });
     }
 
     results.push({
       pilot: email,
       airports: airportList,
-      emailSent: !emailError
+      emailSent: !emailError,
     });
   }
 
   return NextResponse.json({
     pilotsProcessed: Object.keys(pilots).length,
-    results
+    results,
   });
-
 }
