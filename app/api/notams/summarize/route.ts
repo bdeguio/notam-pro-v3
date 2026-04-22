@@ -1,127 +1,126 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import OpenAI from "openai";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY!,
-  });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+function isProcedureNotam(text: string) {
+  return (
+    text.includes("IAP ") ||
+    text.includes("ILS OR LOC") ||
+    text.includes("RNAV") ||
+    text.includes("ALTERNATE MINIMUMS") ||
+    text.includes("VORTAC")
   );
-
-  // find NOTAM rows that still need summaries
-  const { data, error } = await supabase
-    .from("airport_notams")
-    .select("*")
-    .is("summary", null);
-
-  if (error) {
-    return NextResponse.json({ error }, { status: 500 });
-  }
-
-  const results = [];
-
-  for (const row of data || []) {
-
-    const notamText =
-      typeof row.raw_notams === "string"
-        ? row.raw_notams
-        : JSON.stringify(row.raw_notams);
-
-    const prompt = `
-You are a pilot dispatcher preparing a 10-second NOTAM briefing.
-
-Goal:
-A pilot should understand operational hazards immediately.
-
-Classify airport severity:
-
-RED
-Major hazard or runway closure.
-
-YELLOW
-Operational caution (taxiway closures, lighting outages).
-
-GREEN
-No significant operational impact.
-
-Return JSON only:
-
-{
-  "severity": "RED | YELLOW | GREEN",
-  "summary": "short pilot briefing"
 }
 
-NOTAMS:
-${notamText}
+export async function POST() {
+  try {
+    const { data: notams, error } = await supabase
+      .from("airport_notams")
+      .select("*")
+      .is("summarized", null)
+      .limit(20);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!notams || notams.length === 0) {
+      return NextResponse.json({ message: "No NOTAMs to summarize." });
+    }
+
+    let count = 0;
+
+    for (const n of notams) {
+      const raw = n.raw_text || "";
+
+      const procedurePrompt = `
+You are summarizing a procedure NOTAM for a pilot.
+
+Format exactly:
+
+IAP
+[main operational restriction]
+[list each affected procedure on its own line]
+
+Rules:
+- Put the restriction first.
+- Preserve all listed approaches/procedures.
+- Use plain pilot language.
+- Expand abbreviations if helpful (ACFT → aircraft).
+- Mention unmonitored navaids if relevant.
+
+NOTAM:
+${raw}
 `;
 
-    try {
+      const normalPrompt = `
+Summarize this NOTAM for a pilot in one short operational sentence.
+
+Rules:
+- Be concise
+- Focus on operational impact
+- No filler words
+
+NOTAM:
+${raw}
+`;
+
+      const prompt = isProcedureNotam(raw)
+        ? procedurePrompt
+        : normalPrompt;
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.2,
-        response_format: { type: "json_object" },
         messages: [
-          {
-            role: "system",
-            content: "You summarize aviation NOTAMs for pilots."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
+          { role: "system", content: "You are a professional pilot assistant." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 180,
       });
 
-      const content =
-        completion.choices[0]?.message?.content || "{}";
+      const summary =
+        completion.choices[0]?.message?.content?.trim();
 
-      let parsed;
-
-      try {
-        parsed = JSON.parse(content);
-      } catch {
-        console.error("Failed to parse GPT response:", content);
-        results.push({ airport: row.airport, error: "parse_failed" });
+      if (!summary) {
+        console.error("Empty summary for:", n.id);
         continue;
       }
 
-      await supabase
+      const { error: updateError } = await supabase
         .from("airport_notams")
-        .update({
-          summary: parsed.summary,
-          severity: parsed.severity
-        })
-        .eq("id", row.id);
+        .update({ summarized: summary })
+        .eq("id", n.id);
 
-      results.push({
-        airport: row.airport,
-        summarized: true
-      });
+      if (updateError) {
+        console.error("Update error:", updateError);
+        continue;
+      }
 
-    } catch (err) {
-
-      console.error("OpenAI error:", err);
-
-      results.push({
-        airport: row.airport,
-        error: true
-      });
-
+      count++;
     }
 
+    return NextResponse.json({
+      success: true,
+      summarized: count,
+    });
+
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to summarize" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    processed: data?.length || 0,
-    results
-  });
-
 }

@@ -9,6 +9,41 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// ✅ ADD THIS
+function categorize(text: string) {
+  const t = text.toUpperCase();
+
+  if (t.includes("ILS") || t.includes("RNAV") || t.includes("IAP")) {
+    return { category: "IAP", subcategory: "PROCEDURE" };
+  }
+
+  if (t.includes("VOR") || t.includes("VORTAC") || t.includes("GPS")) {
+    return { category: "NAV", subcategory: null };
+  }
+
+  if (t.includes("AIRSPACE") || t.includes("TFR")) {
+    return { category: "AIRSPACE", subcategory: null };
+  }
+
+  if (t.includes("RWY")) {
+    return { category: "RUNWAY", subcategory: null };
+  }
+
+  if (t.includes("TWY") || t.includes("APRON") || t.includes("TXL")) {
+    return { category: "GROUND", subcategory: "TAXIWAY" };
+  }
+
+  if (t.includes("CLSD") || t.includes("WIP") || t.includes("CONST")) {
+    return { category: "CONSTRUCTION", subcategory: null };
+  }
+
+  if (t.includes("CRANE") || t.includes("OBST") || t.includes("TOWER")) {
+    return { category: "OBSTACLE", subcategory: null };
+  }
+
+  return { category: "OTHER", subcategory: null };
+}
+
 export async function POST() {
   try {
     const { data: airports, error } = await supabase
@@ -23,7 +58,7 @@ export async function POST() {
       return NextResponse.json({ error: "No airports found." }, { status: 400 });
     }
 
-    // ✅ clear old NOTAMs (your current model)
+    // clear old NOTAMs
     await supabase
       .from("airport_notams")
       .delete()
@@ -64,13 +99,21 @@ export async function POST() {
 
       const notams = data.notams || [];
 
-      const rows = notams.map((n: any) => ({
-        airport,
-        notam_id: n.id,
-        raw_text: n.message || n.icao_message || "",
-        effective_start: n.starts_at || null,
-        effective_end: n.ends_at || null,
-      }));
+      // ✅ UPDATED BLOCK
+      const rows = notams.map((n: any) => {
+        const text = n.message || n.icao_message || "";
+        const { category, subcategory } = categorize(text);
+
+        return {
+          airport,
+          notam_id: n.id,
+          raw_text: text,
+          effective_start: n.starts_at || null,
+          effective_end: n.ends_at || null,
+          category,
+          subcategory,
+        };
+      });
 
       if (rows.length > 0) {
         const { error: insertError } = await supabase

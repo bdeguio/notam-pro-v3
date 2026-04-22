@@ -27,6 +27,15 @@ export default function NotamBox() {
     setLoading(false);
   }
 
+  async function summarizeNotams() {
+    const res = await fetch("/api/notams/summarize", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+    console.log(data);
+  }
+
   return (
     <div>
       <h2>NOTAMs</h2>
@@ -35,6 +44,12 @@ export default function NotamBox() {
       <button onClick={pullNotams} disabled={loading}>
         {loading ? "Pulling..." : "Pull NOTAMs"}
       </button>
+
+      <div>
+      <button onClick={summarizeNotams}>
+        Summarize NOTAMs
+      </button>
+      </div>
 
       <p>{message}</p>
     </div>
